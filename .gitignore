@@ -1,0 +1,18 @@
+# envs
+.venv/
+__pycache__/
+*.pyc
+
+# data & artifacts (large, regenerable)
+data/
+research/checkpoints/
+wandb/
+*.bin
+*.pt
+*.safetensors
+
+# secrets — xsearch.py reads XAI_API_KEY from env or ~/.config/claudemaxxing/.env
+.env
+
+# os
+.DS_Store
