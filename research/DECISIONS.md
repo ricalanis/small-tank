@@ -55,8 +55,21 @@ The "over-train to 100–500 tok/param" rule (`02`/`04`/`BUILD-PLAN`) **assumes 
 
 ---
 
-## D6. Throughput planning figure = pessimistic until measured (resolves `08` §2.1)
-Docs disagree 2–4× (`04`: ~8–12K tok/s for 50–150M; `07`: 26–43K for 125M). **Until Experiment 0 measures the truth, plan with the pessimistic `04` figure** and label every wall-clock estimate `unverified`. Update both docs to the measured number afterward and delete the loser.
+## D6. Throughput = MEASURED (resolves `08` §2.1) — `last_verified: 2026-06-13`
+**Settled by [Experiment 0](#) (RUN 001 in `research/log.md`)** on the actual 3060 Ti (bf16, SDPA, seq 1024). The conflicting estimates are now superseded:
+- **Doc `04` (~8–12K tok/s for 50–150M): REFUTED** — ~6–9× too pessimistic.
+- **Doc `07` (30M = 108–180K): REFUTED** — ~2× too optimistic; real ~30M ≈ **70K tok/s**.
+- **Doc `07` (125M = 26–43K): ≈ CONFIRMED** — an 88M model with 8-bit AdamW + grad-ckpt ran **~22K tok/s**.
+
+**Use these measured figures for planning** (MFU ~30–45%):
+
+| Class | tok/s | Settings | Peak VRAM | Notes |
+|---|---|---|---|---|
+| ~5M | ~217K | b32, AdamW, no ckpt | 4.3 GB | micro-proxy daily driver |
+| ~30M | **~70K** | b16, AdamW, no ckpt | ~5.6 GB | OOMs at b32 w/o ckpt |
+| ~90M | ~22K | b24, **8-bit AdamW + grad-ckpt** | 5.7 GB | 125M-class fits ONLY this way |
+
+**Consequences:** (1) **SDPA is mandatory** — eager attention OOMs at seq 1024 where SDPA fits, and is 3.2× slower + 3.2× heavier (5M b8: 194K@1.18GB vs 61K@3.83GB). (2) The 30M TinyStories run at ~70K tok/s ⇒ **~6 h for 1.5B tokens**, not the "2–4 h" in `RECOMMENDATION` §5 — that estimate is `superseded`. (3) The 125M level-2 model **requires** 8-bit AdamW + gradient checkpointing to fit 8 GB. **Caveat:** the probe configs undershoot their labels (the "30m" config measured 14.8M/26.7M; "125m" measured 88M) — tune `configs/*.yaml` to exact param targets in Stage 1; true-30M throughput will be modestly lower than 70K.
 
 ---
 

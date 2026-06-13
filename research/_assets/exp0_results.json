@@ -1,0 +1,20 @@
+{
+  "device": "NVIDIA GeForce RTX 3060 Ti",
+  "torch": "2.6.0+cu124",
+  "seq": 1024,
+  "results": [
+    {
+      "config": "5m",
+      "params_M": 5.3,
+      "batch": 8,
+      "seq": 1024,
+      "optim": "adamw",
+      "sdpa": false,
+      "grad_ckpt": false,
+      "tok_s": 60729,
+      "peak_gb": 3.83,
+      "mfu_pct": 9.4,
+      "oom": false
+    }
+  ]
+}

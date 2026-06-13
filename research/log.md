@@ -33,3 +33,25 @@ INTUITION:    The CUDA-13 driver is backward-compatible with cu124 wheels; bitsa
 UNVERIFIED→:  RETIRES DECISIONS.md D7 (Python 3.13 ecosystem risk). Still pending: lm-eval install
               (deferred to Stage 4). NOT yet measured: throughput/VRAM (08 Experiment 0 — next).
 
+## RUN 001 — 2026-06-13 — 08 Experiment 0: throughput + VRAM probe (scripts/probe.py)
+HYPOTHESIS:   Real tok/s would land between doc 04 (8–12K for 50–150M) and doc 07 (30M 108–180K,
+              125M 26–43K), which conflict 2–4x. Predicted ~30M ≈ 60–90K; 125M needs 8-bit+ckpt to fit.
+CHANGE:       First measurement on real hardware. bf16, SDPA, seq 1024, AdamW, no grad-ckpt (unless noted).
+CONFIG:       scripts/probe.py @ commit 3b42cb0; RTX 3060 Ti; torch 2.6.0+cu124.
+RESULT (measured, NOT estimated):
+              5.3M  : 217K tok/s @ b32 (4.34GB) · MFU ~34%
+              14.8M : 75K tok/s @ b16 (5.85GB) · OOM @ b32
+              26.7M : 70K tok/s @ b16 (5.59GB) · MFU ~45% · OOM @ b32
+              88.1M : OOM @ b8 with plain AdamW;  FITS w/ 8-bit AdamW + grad-ckpt → 22K tok/s @ b24 (5.7GB)
+              SDPA vs eager (5M b8): 194K vs 61K tok/s (3.2x faster) AND 1.18 vs 3.83 GB (3.2x less mem)
+              eager 30m-deep b16: OOM (eager can't even fit where SDPA uses 5.85GB)
+VERDICT:      WIN. Conflict settled: doc 07 ~2x optimistic for 30M (real ~70K, not 108–180K);
+              doc 04 ~6–9x too pessimistic (refuted). doc 07's 125M range (26–43K) ≈ right (~22K w/ ckpt).
+              125M-class FITS 8GB only with 8-bit AdamW + grad-ckpt. SDPA is mandatory (memory, not just speed).
+INTUITION:    At seq 1024 eager attention materializes [B,nh,T,T] and dominates memory → SDPA/FlashAttn-2
+              is the enabler, not an optimization. ~30M trains at ~70K tok/s → 1.5B tokens ≈ ~6h (RECOMMENDATION's
+              "2–4h" was optimistic). CAVEAT: probe configs undershoot labels (30m-deep=14.8M, 125m=88.1M);
+              true 30M/125M will be a bit slower/heavier — tune configs/*.yaml to hit exact param targets in Stage 1.
+UNVERIFIED→:  RESOLVES DECISIONS.md D6 + 08 §2.1 (throughput conflict). Strong preview of Exp 4 (SDPA speedup).
+              Still open: true-30M throughput (config undershoots); 8-bit AdamW *quality* impact (Exp 5).
+
