@@ -73,3 +73,28 @@ UNVERIFIED→:  Note: embedding fraction came out 20% (vocab 4096 @ d256), not t
               to hit 14% the proxy needs vocab ~2900 OR slightly more params. Refine in Exp 3.
               Next: Stage 2 (ablate RoPE/RMSNorm/SwiGLU/GQA vs baseline) OR size true-30M for Exp 2.
 
+## RUN 003 — 2026-06-13 — BUILD-PLAN Stage 2: additive architecture ablation (5M proxy)
+HYPOTHESIS:   Each modern component beats the GPT-2-era baseline; expected RoPE small win, RMSNorm ~neutral,
+              SwiGLU small win, GQA ~neutral on loss but lighter. All at 2500 steps, same seed/tokens.
+CHANGE:       Refactored src/model.py to make pos/norm/mlp/attn swappable behind config; scripts/ablate.py
+              runs the cumulative ladder. One variable added per rung.
+RESULT (003a, BUGGED baseline = sinusoidal PE): baseline val 3.745, "+RoPE" -1.685 (implausible).
+        ROOT CAUSE: unit-magnitude sinusoidal PE added to 0.02-init token embeddings → PE swamps token signal.
+        FIX: baseline uses learned absolute PE (GPT-2 canonical); sinusoidal path now scales token emb by sqrt(d).
+RESULT (003b, CORRECTED):
+              baseline (learned PE/LN/GELU/MHA) 5.90M  val 2.194   304K tok/s
+              + RoPE                            5.77M  val 2.059  (-0.135)  241K
+              + RMSNorm                         5.77M  val 2.064  (+0.005)  203K
+              + SwiGLU                          5.87M  val 2.040  (-0.024)  193K
+              + GQA (full modern)               5.28M  val 2.054  (+0.015)  205K
+              Full modern vs baseline: -0.140 val, mostly RoPE + a bit of SwiGLU; RMSNorm/GQA quality-neutral.
+VERDICT:      WIN (and a great lesson). Matches literature: RoPE real-but-modest at seq512, SwiGLU small win,
+              RMSNorm neutral (value = simplicity/scale), GQA neutral-on-loss + cuts params 5.87M→5.28M (KV cache).
+INTUITION:    The SOTA stack is NOT a free lunch at toy scale: full-modern is SLOWER (205K vs 304K tok/s) for
+              -0.14 loss. RoPE's length-extrap, GQA's inference KV savings, RMSNorm's at-scale stability pay off
+              at LARGER scale / longer context / inference — not visibly at 5M/seq512. Also: my RMSNorm (float32
+              upcast, non-fused) is slower than fused F.layer_norm; torch.compile would likely close that.
+              The bug itself is the deepest lesson: an unfair baseline made RoPE look 12x better than real.
+UNVERIFIED→:  Confirms each component's role qualitatively. Open: re-measure norm speed under torch.compile;
+              GQA/RoPE benefits at the true-30M / longer-seq regime. Next: Lesson 1 + Exp 2 (true-30M depth-vs-width).
+

@@ -3,10 +3,12 @@ Training loop (research/02-training-recipes.md).
 
   python -m src.train --config configs/5m.yaml
   python -m src.train --config configs/5m.yaml --max-steps 6000 --wandb
+  # component overrides (Stage-2 ablations):
+  python -m src.train --config configs/5m.yaml --pos sinusoidal --norm layernorm --mlp gelu
 
 bf16 autocast (no GradScaler needed), AdamW (weight decay on 2D matrices only),
 cosine LR schedule with warmup, grad clipping, periodic val-loss eval, checkpoint
-of the best model. Keep it simple — WSD / over-training come at Stage 3.
+of the best model. The train() function is reusable by scripts/ablate.py.
 """
 import argparse
 import math
@@ -55,51 +57,34 @@ def estimate_val_loss(model, cfg, device, n=50):
     return losses.mean().item()
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True)
-    ap.add_argument("--max-steps", type=int, default=None)
-    ap.add_argument("--wandb", action="store_true")
-    a = ap.parse_args()
-
-    with open(a.config) as f:
-        cfg = yaml.safe_load(f)
-    if a.max_steps:
-        cfg["max_steps"] = a.max_steps
-
-    device = "cuda"
-    torch.manual_seed(1337)
+def train(cfg, device="cuda", save=True, verbose=True, seed=1337):
+    """Train one model from a fully-formed cfg dict. Returns a metrics dict."""
+    torch.manual_seed(seed)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
 
-    # keep model vocab in sync with the trained tokenizer
     tok = load_tokenizer()
     cfg["vocab_size"] = tok.get_vocab_size()
 
     model = TinyLM(ModelConfig.from_dict(cfg)).to(device)
     n_params = model.num_params()
     emb_frac = 100 * (cfg["vocab_size"] * cfg["d_model"]) / n_params
-    print(f"[train] {cfg['name']}: {n_params/1e6:.2f}M params | embedding {emb_frac:.0f}% "
-          f"| vocab {cfg['vocab_size']} | seq {cfg['max_seq_len']} | bs {cfg['batch_size']}")
+    if verbose:
+        print(f"[train] {cfg['name']}: {n_params/1e6:.2f}M params | embedding {emb_frac:.0f}% "
+              f"| pos={cfg.get('pos','rope')} norm={cfg.get('norm','rmsnorm')} "
+              f"mlp={cfg.get('mlp','swiglu')} n_kv={cfg['n_kv_heads']}")
 
     opt = make_optimizer(model, cfg["weight_decay"], cfg["lr"])
-
-    if a.wandb:
-        import wandb
-        wandb.init(project="small-tank", name=cfg["name"], config=cfg)
-
     os.makedirs(CKPT_DIR, exist_ok=True)
     ckpt_path = os.path.join(CKPT_DIR, f"{cfg['name']}.pt")
     best_val = float("inf")
-    tokens_per_step = cfg["batch_size"] * cfg["max_seq_len"]
+    tps = cfg["batch_size"] * cfg["max_seq_len"]
     torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
 
     for step in range(cfg["max_steps"] + 1):
-        lr = lr_at(step, cfg)
         for g in opt.param_groups:
-            g["lr"] = lr
-
+            g["lr"] = lr_at(step, cfg)
         x, y = get_batch("train", cfg["batch_size"], cfg["max_seq_len"], device)
         with torch.autocast("cuda", dtype=torch.bfloat16):
             _, loss = model(x, y)
@@ -109,23 +94,52 @@ def main():
         opt.zero_grad(set_to_none=True)
 
         if step % cfg["eval_interval"] == 0:
-            torch.cuda.synchronize()
-            dt = time.perf_counter() - t0
-            tok_s = (tokens_per_step * max(step, 1)) / dt
             val = estimate_val_loss(model, cfg, device, cfg["eval_steps"])
-            seen = step * tokens_per_step
-            peak = torch.cuda.max_memory_allocated() / 1e9
-            print(f"step {step:>5} | train {loss.item():.3f} | val {val:.3f} | lr {lr:.2e} "
-                  f"| {tok_s/1e3:.0f}K tok/s | {seen/1e6:.0f}M seen | {peak:.1f}GB")
-            if a.wandb:
-                wandb.log({"train_loss": loss.item(), "val_loss": val, "lr": lr,
-                           "tokens_seen": seen, "tok_s": tok_s}, step=step)
+            if verbose:
+                torch.cuda.synchronize()
+                tok_s = tps * max(step, 1) / (time.perf_counter() - t0)
+                print(f"step {step:>5} | train {loss.item():.3f} | val {val:.3f} "
+                      f"| {tok_s/1e3:.0f}K tok/s | {step*tps/1e6:.0f}M seen")
             if val < best_val:
                 best_val = val
-                torch.save({"model": model.state_dict(), "cfg": cfg, "step": step,
-                            "val_loss": val}, ckpt_path)
+                if save:
+                    torch.save({"model": model.state_dict(), "cfg": cfg, "step": step,
+                                "val_loss": val}, ckpt_path)
 
-    print(f"[train] done. best val loss {best_val:.3f} -> {ckpt_path}")
+    torch.cuda.synchronize()
+    elapsed = time.perf_counter() - t0
+    return dict(name=cfg["name"], params=n_params, val_loss=best_val,
+                tok_s=cfg["max_steps"] * tps / elapsed,
+                peak_gb=torch.cuda.max_memory_allocated() / 1e9, ckpt=ckpt_path)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", required=True)
+    ap.add_argument("--max-steps", type=int, default=None)
+    ap.add_argument("--pos"); ap.add_argument("--norm"); ap.add_argument("--mlp")
+    ap.add_argument("--n-kv-heads", type=int)
+    ap.add_argument("--name")
+    ap.add_argument("--wandb", action="store_true")
+    a = ap.parse_args()
+
+    with open(a.config) as f:
+        cfg = yaml.safe_load(f)
+    for k in ("pos", "norm", "mlp", "name"):
+        if getattr(a, k) is not None:
+            cfg[k] = getattr(a, k)
+    if a.n_kv_heads is not None:
+        cfg["n_kv_heads"] = a.n_kv_heads
+    if a.max_steps:
+        cfg["max_steps"] = a.max_steps
+
+    if a.wandb:
+        import wandb
+        wandb.init(project="small-tank", name=cfg["name"], config=cfg)
+
+    m = train(cfg)
+    print(f"[train] done. {m['name']}: best val {m['val_loss']:.3f} | "
+          f"{m['params']/1e6:.2f}M | {m['tok_s']/1e3:.0f}K tok/s -> {m['ckpt']}")
 
 
 if __name__ == "__main__":

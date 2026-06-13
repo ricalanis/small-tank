@@ -1,0 +1,50 @@
+{
+  "max_steps": 2500,
+  "results": [
+    {
+      "name": "abl_baseline_gelu",
+      "params": 5904896,
+      "val_loss": 2.1941184997558594,
+      "tok_s": 303879.501773132,
+      "peak_gb": 1.941786112,
+      "ckpt": "/home/ricardo/dev/small-tank/research/checkpoints/abl_baseline_gelu.pt",
+      "label": "baseline (GPT-2 era)"
+    },
+    {
+      "name": "abl__gelu",
+      "params": 5773824,
+      "val_loss": 2.059023857116699,
+      "tok_s": 240942.90567248175,
+      "peak_gb": 1.940209152,
+      "ckpt": "/home/ricardo/dev/small-tank/research/checkpoints/abl__gelu.pt",
+      "label": "+ RoPE"
+    },
+    {
+      "name": "abl__gelu",
+      "params": 5770496,
+      "val_loss": 2.063692569732666,
+      "tok_s": 203366.0139280274,
+      "peak_gb": 2.157421056,
+      "ckpt": "/home/ricardo/dev/small-tank/research/checkpoints/abl__gelu.pt",
+      "label": "+ RMSNorm"
+    },
+    {
+      "name": "abl__swiglu",
+      "params": 5868800,
+      "val_loss": 2.039583683013916,
+      "tok_s": 192539.47904203524,
+      "peak_gb": 2.360123904,
+      "ckpt": "/home/ricardo/dev/small-tank/research/checkpoints/abl__swiglu.pt",
+      "label": "+ SwiGLU"
+    },
+    {
+      "name": "abl__swiglu",
+      "params": 5278976,
+      "val_loss": 2.0543766021728516,
+      "tok_s": 204696.2196010433,
+      "peak_gb": 2.351866368,
+      "ckpt": "/home/ricardo/dev/small-tank/research/checkpoints/abl__swiglu.pt",
+      "label": "+ GQA (full modern)"
+    }
+  ]
+}
