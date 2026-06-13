@@ -55,3 +55,21 @@ INTUITION:    At seq 1024 eager attention materializes [B,nh,T,T] and dominates 
 UNVERIFIED→:  RESOLVES DECISIONS.md D6 + 08 §2.1 (throughput conflict). Strong preview of Exp 4 (SDPA speedup).
               Still open: true-30M throughput (config undershoots); 8-bit AdamW *quality* impact (Exp 5).
 
+## RUN 002 — 2026-06-13 — BUILD-PLAN Stage 1: full pipeline end-to-end (5M on TinyStories)
+HYPOTHESIS:   A 5M model trained ~7 min on TinyStories would become grammatical & on-topic but
+              wobble on long-range consistency (the canonical TinyStories result at this scale).
+CHANGE:       First real training run. Built src/{model,data,train}.py + scripts/generate.py from scratch
+              (2026 stack: RoPE/RMSNorm/SwiGLU/GQA/SDPA, tied embeds). 68M train tokens, vocab 4096.
+CONFIG:       configs/5m.yaml, 5000 steps, bs32 seq512, AdamW lr6e-4 cosine, bf16. commit 2018891+.
+RESULT:       5.28M params (embedding 20%) | val loss 8.32 → 1.844 (smooth, no NaN/divergence) |
+              206K tok/s (confirms Exp 0's 5M ~217K) | 2.4 GB peak | 82M tokens seen (~15 tok/param) |
+              GENERATION: coherent toy stories — named chars, dialogue, arcs, ZERO token loops.
+              Minor long-range slips (a bear "Max" greeted as "Timmy") = expected 5M signature.
+VERDICT:      WIN — gate cleared. The whole loop works: data→tokenizer→train→checkpoint→generate.
+              Project's core thesis (TinyStories → coherent tiny models) CONFIRMED on this hardware.
+INTUITION:    At 5M, grammar is fully learned but entity tracking isn't — capacity goes to local
+              fluency first. val 1.84 vs the ~1.3 of a 28M ref ⇒ headroom from scale + more tokens.
+UNVERIFIED→:  Note: embedding fraction came out 20% (vocab 4096 @ d256), not the ~14% D3 targets —
+              to hit 14% the proxy needs vocab ~2900 OR slightly more params. Refine in Exp 3.
+              Next: Stage 2 (ablate RoPE/RMSNorm/SwiGLU/GQA vs baseline) OR size true-30M for Exp 2.
+
