@@ -1,0 +1,18 @@
+{
+  "$comment": "Project-scoped Claude Code settings — travels in git so every tailnet machine shares it. Personal/secret overrides go in .claude/settings.local.json (gitignored). Keep this conservative: only safe, read-only, or this project's own deterministic commands.",
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(python -m src.data:*)",
+      "Bash(python -m src.train:*)",
+      "Bash(.venv/bin/python -m src.data:*)",
+      "Bash(.venv/bin/python -m src.train:*)",
+      "Bash(.venv/bin/python scripts/probe.py:*)",
+      "Bash(.venv/bin/python scripts/ablate.py:*)",
+      "Bash(.venv/bin/python scripts/generate.py:*)"
+    ]
+  }
+}

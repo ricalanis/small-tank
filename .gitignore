@@ -14,5 +14,9 @@ wandb/
 # secrets — xsearch.py reads XAI_API_KEY from env or ~/.config/claudemaxxing/.env
 .env
 
+# Claude Code: share project settings.json, keep personal/secret overrides local
+.claude/settings.local.json
+.claude/projects/
+
 # os
 .DS_Store
