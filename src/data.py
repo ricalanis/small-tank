@@ -14,15 +14,23 @@ Stories are joined by the <|endoftext|> token so the model learns document bound
 """
 import argparse
 import os
+import shutil
 
 import numpy as np
 
-DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+DATA_DEFAULT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
 EOT = "<|endoftext|>"
 
 
+def _data_dir():
+    """Active data dir. Override with SMALLTANK_DATA_DIR to point the trainer at a
+    per-vocab artifact set (used by the vocab-allocation sweep, scripts/vocab_alloc.py)."""
+    return os.environ.get("SMALLTANK_DATA_DIR", DATA_DEFAULT)
+
+
 def _paths():
-    return {k: os.path.join(DATA, v) for k, v in dict(
+    base = _data_dir()
+    return {k: os.path.join(base, v) for k, v in dict(
         train_txt="train.txt", val_txt="val.txt", tok="tokenizer.json",
         train_bin="train.bin", val_bin="val.bin").items()}
 
@@ -33,7 +41,7 @@ def stream_to_text(n_train, n_val):
         print(f"[data] text splits exist, skipping download")
         return
     from datasets import load_dataset
-    os.makedirs(DATA, exist_ok=True)
+    os.makedirs(_data_dir(), exist_ok=True)
     print(f"[data] streaming TinyStories: {n_train} train + {n_val} val stories")
     ds = load_dataset("roneneldan/TinyStories", split="train", streaming=True)
     it = iter(ds)
@@ -90,6 +98,28 @@ def prepare(n_train, n_val, vocab):
     tokenize_split(p["train_txt"], p["train_bin"], tok)
     tokenize_split(p["val_txt"], p["val_bin"], tok)
     print("[data] done.")
+
+
+def prepare_vocab(vocab, out_dir, src_dir=None):
+    """Build a per-vocab artifact set (tokenizer + train/val bins) into out_dir, reusing the
+    already-downloaded text splits in src_dir (default DATA_DEFAULT). For the vocab-allocation
+    sweep: train a fresh BPE at `vocab`, retokenize both splits, and copy val.txt so that
+    bytes_per_token works when SMALLTANK_DATA_DIR=out_dir. Idempotent. Returns the real vocab size."""
+    from tokenizers import ByteLevelBPETokenizer, Tokenizer
+    src = src_dir or DATA_DEFAULT
+    os.makedirs(out_dir, exist_ok=True)
+    src_train, src_val = os.path.join(src, "train.txt"), os.path.join(src, "val.txt")
+    tok_path = os.path.join(out_dir, "tokenizer.json")
+    if not os.path.exists(tok_path):
+        t = ByteLevelBPETokenizer()
+        t.train([src_train], vocab_size=vocab, min_frequency=2, special_tokens=[EOT])
+        t.save(tok_path)
+    tok = Tokenizer.from_file(tok_path)
+    tokenize_split(src_train, os.path.join(out_dir, "train.bin"), tok)
+    tokenize_split(src_val, os.path.join(out_dir, "val.bin"), tok)
+    if not os.path.exists(os.path.join(out_dir, "val.txt")):
+        shutil.copyfile(src_val, os.path.join(out_dir, "val.txt"))
+    return tok.get_vocab_size()
 
 
 def load_tokenizer():

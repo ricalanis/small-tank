@@ -32,6 +32,7 @@ class ModelConfig:
     pos: str = "rope"
     norm: str = "rmsnorm"
     mlp: str = "swiglu"
+    d_ff: int = 0          # 0 => derive (2/3·4·d, ×64); >0 => explicit MLP hidden (body-resize knob)
 
     @classmethod
     def from_dict(cls, d):
@@ -99,8 +100,11 @@ class Attention(nn.Module):
 class SwiGLU(nn.Module):
     def __init__(self, cfg: ModelConfig):
         super().__init__()
-        hidden = int(2 / 3 * 4 * cfg.d_model)
-        hidden = ((hidden + 63) // 64) * 64
+        if cfg.d_ff > 0:
+            hidden = cfg.d_ff                      # explicit override (vocab-allocation sweep)
+        else:
+            hidden = int(2 / 3 * 4 * cfg.d_model)
+            hidden = ((hidden + 63) // 64) * 64
         self.w1 = nn.Linear(cfg.d_model, hidden, bias=False)
         self.w3 = nn.Linear(cfg.d_model, hidden, bias=False)
         self.w2 = nn.Linear(hidden, cfg.d_model, bias=False)

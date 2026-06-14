@@ -122,3 +122,22 @@ INTUITION:    The causal mask is what makes val loss an HONEST proxy for the aut
 UNVERIFIED→:  Lesson A1 (Attention Is All You Need) closed. Confirms: attention is permutation-equivariant
               (order must be injected); causal masking is what defines a *language* model vs a fill-in model.
 
+
+## RUN 005 — 2026-06-14 — Lesson A2 / Exp 3: pure vocab-allocation sweep (embedding vs body)
+HYPOTHESIS:   (Claude's prediction; Ricardo delegated this round.) Hold total params ~5.3M and sweep
+              vocab V∈{512,1k,2k,4k,8k,16k}, solving d_ff so only the embedding/body split moves.
+              Compare in BPB (per-token loss would rig it toward small V), equal-BYTES budget (100MB).
+              Predict a shallow U: BPB-minimum around V=2k–4k. High V (8k,16k) loses to body starvation
+              + Zipfian-tail undertraining (16k is degenerate: d_ff=26, basically no MLP). Low V (512–1k)
+              is body-rich (d_ff up to 908) so it stays close, but pays at fixed seq_len=512 — finer
+              tokens → longer text per story → less narrative per window + capacity spent on byte-assembly,
+              so it ticks slightly above the optimum rather than winning. Net: interior optimum, gentle
+              left shoulder, steep right cliff. Secondary watch: does the BPB-optimal V land near D3's
+              4096 (chosen for proxy fidelity, not loss) — a coincidence worth interrogating?
+CHANGE:       New rig: model.py d_ff override (body-resize knob); data.py per-vocab artifacts
+              (prepare_vocab + SMALLTANK_DATA_DIR); scripts/vocab_alloc.py. One variable swept = vocab.
+CONFIG:       configs/5m.yaml base, d=256/6L fixed, batch32 seq512, ~5.3M params/rung, 100MB byte budget.
+RESULT:       <pending — run on ricardoubuntu>
+VERDICT:      <pending>
+INTUITION:    <pending>
+UNVERIFIED→:  <pending>  Tests DECISIONS.md D3 (vocab budget) as a *loss* question, not just fidelity.
