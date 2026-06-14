@@ -59,6 +59,9 @@ ssh ricardo@ricardoubuntu      # or @100.70.90.85
 cd ~/dev/small-tank && git pull && source .venv/bin/activate
 python -m src.train --config configs/5m.yaml
 ```
+**SSH user is `ricardo`** (not `ricalanis`). Credentials for password login live in the gitignored `.env`
+(`RICARDOUBUNTU_SSH_USER` / `RICARDOUBUNTU_SSH_PASS`) — never commit them. Prefer key auth (`ssh-copy-id`) when
+set up.
 **Does NOT travel via git** (rebuild per machine): `.venv/` (run the Quickstart below), `data/` (re-run
 `src.data prepare`), `research/checkpoints/*.pt` (retrain, or `rsync`/`scp` over tailscale if you want a trained
 artifact on another box). Machine-local Claude **auto-memory** doesn't travel either — *this file* is its
