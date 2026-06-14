@@ -137,7 +137,33 @@ HYPOTHESIS:   (Claude's prediction; Ricardo delegated this round.) Hold total pa
 CHANGE:       New rig: model.py d_ff override (body-resize knob); data.py per-vocab artifacts
               (prepare_vocab + SMALLTANK_DATA_DIR); scripts/vocab_alloc.py. One variable swept = vocab.
 CONFIG:       configs/5m.yaml base, d=256/6L fixed, batch32 seq512, ~5.3M params/rung, 100MB byte budget.
-RESULT:       <pending — run on ricardoubuntu>
-VERDICT:      <pending>
-INTUITION:    <pending>
-UNVERIFIED→:  <pending>  Tests DECISIONS.md D3 (vocab budget) as a *loss* question, not just fidelity.
+RESULT:       (ricardoubuntu, ~5.30M/rung, 100MB byte budget; research/_assets/vocab_alloc.json)
+              vocab  d_ff  emb%  B/tok  steps   val    BPB
+                512   908   2%   2.34   2610  1.328  0.819
+               1024   879   5%   3.10   1967  1.786  0.831
+               2048   822  10%   3.67   1664  2.036  0.801  <- BPB-optimal
+               4096   709  20%   4.01   1524  2.224  0.801  (tie)
+               8192   481  40%   4.17   1463  2.367  0.818
+              16384    26  79%   4.21   1451  2.570  0.882  (degenerate: d_ff=26, ~no MLP)
+              THE CURVE IS NEARLY FLAT: across 32x vocab + emb-frac 2%->79%, BPB spans only
+              0.801–0.882 (0.081). No cliff; only the no-MLP V=16384 ticks up. Per-token val,
+              by contrast, rises MONOTONICALLY 1.328->2.570 — it ranks the rungs in the OPPOSITE
+              order, the exact artifact BPB exists to kill (finer vocab = shorter/lower-entropy
+              tokens => smaller per-token NLL, independent of quality).
+VERDICT:      PARTIAL HIT. Right: interior optimum (2k–4k) and worst-at-top. WRONG: predicted a
+              steep right cliff + a real U — reality is a flat plateau; even 79%-embedding/no-MLP
+              loses just 0.08 bpb. Low-V didn't pay the seq-length penalty I expected (fat MLP
+              compensates). Calibration: ~1.5/3 (direction yes, shape/magnitude no).
+INTUITION:    At 5M on TinyStories, the embedding/body split is nearly a FREE parameter for quality
+              over 512–8192 — the task is so compressible the body isn't the binding constraint, so
+              moving budget between table and MLP barely moves loss. Two durable lessons: (1) BPB and
+              per-token loss DISAGREED ON THE RANKING here — concrete proof the metric choice can flip
+              your conclusion (Lesson A2 made real). (2) This VINDICATES D3 not by coincidence but by
+              flatness: vocab 4096 (chosen for proxy fidelity) ties for best, because the whole region
+              is flat — fidelity costs ~0 quality. Allocation should be set by seq-length / inference
+              cost / proxy-fidelity, not loss, at this scale.
+UNVERIFIED→:  Retires the *loss* half of DECISIONS.md D3 at 5M (allocation ~quality-neutral 512–8k).
+              CAVEATS (one-variable next runs): short budget (~1.5–2.6k steps) may under-resolve the
+              high-V tail; only d_ff absorbed the budget (high-V is attention-heavy, not a clean body
+              shrink); controlled bytes not compute; single seed. Does flatness hold at 30M / longer
+              budget? Next: Lesson A4 + coherence ladder (Exp 1), the flagship.
