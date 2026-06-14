@@ -97,6 +97,26 @@ def load_tokenizer():
     return Tokenizer.from_file(_paths()["tok"])
 
 
+def bytes_per_token(split="val"):
+    """Tokenizer compression ratio on a split: UTF-8 text bytes / tokens in the .bin.
+
+    This is the vocab-invariant normalizer for bits-per-byte (research/06 §2.3). Per-token
+    NLL is NOT comparable across vocabularies — a finer tokenizer emits shorter, lower-entropy
+    tokens — so any cross-tokenizer comparison must divide by bytes/token. Counted consistently
+    with the loss: the denominator is len(.bin) (which includes the per-story EOT tokens the
+    model also predicts); the numerator is the bytes of the text that was actually tokenized
+    (line.strip(), matching tokenize_split). EOT contributes a token but ~0 text bytes — the
+    same small offset the trained model sees, so the metric stays self-consistent.
+    """
+    p = _paths()
+    txt = p["val_txt" if split == "val" else "train_txt"]
+    binp = p["val_bin" if split == "val" else "train_bin"]
+    with open(txt, encoding="utf-8") as f:
+        nbytes = sum(len(line.strip().encode("utf-8")) for line in f)
+    ntok = len(np.memmap(binp, dtype=np.uint16, mode="r"))
+    return nbytes / ntok
+
+
 def get_batch(split, batch_size, seq_len, device):
     """Sample a random contiguous batch from the memmapped .bin shard."""
     path = _paths()["train_bin" if split == "train" else "val_bin"]

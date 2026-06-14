@@ -18,8 +18,10 @@ import time
 import torch
 import yaml
 
-from src.data import get_batch, load_tokenizer
+from src.data import bytes_per_token, get_batch, load_tokenizer
 from src.model import ModelConfig, TinyLM
+
+LN2 = math.log(2)  # nats -> bits
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CKPT_DIR = os.path.join(ROOT, "research", "checkpoints")
@@ -77,7 +79,9 @@ def train(cfg, device="cuda", save=True, verbose=True, seed=1337):
     opt = make_optimizer(model, cfg["weight_decay"], cfg["lr"])
     os.makedirs(CKPT_DIR, exist_ok=True)
     ckpt_path = os.path.join(CKPT_DIR, f"{cfg['name']}.pt")
+    bpt = bytes_per_token("val")  # vocab-invariant normalizer (research/06 §2.3)
     best_val = float("inf")
+    best_bpb = float("inf")
     tps = cfg["batch_size"] * cfg["max_seq_len"]
     torch.cuda.reset_peak_memory_stats()
     t0 = time.perf_counter()
@@ -95,21 +99,23 @@ def train(cfg, device="cuda", save=True, verbose=True, seed=1337):
 
         if step % cfg["eval_interval"] == 0:
             val = estimate_val_loss(model, cfg, device, cfg["eval_steps"])
+            bpb = val / (LN2 * bpt)  # bits-per-byte: vocab-invariant, the primary gate
             if verbose:
                 torch.cuda.synchronize()
                 tok_s = tps * max(step, 1) / (time.perf_counter() - t0)
                 print(f"step {step:>5} | train {loss.item():.3f} | val {val:.3f} "
-                      f"| {tok_s/1e3:.0f}K tok/s | {step*tps/1e6:.0f}M seen")
+                      f"| bpb {bpb:.3f} | {tok_s/1e3:.0f}K tok/s | {step*tps/1e6:.0f}M seen")
             if val < best_val:
                 best_val = val
+                best_bpb = bpb
                 if save:
                     torch.save({"model": model.state_dict(), "cfg": cfg, "step": step,
-                                "val_loss": val}, ckpt_path)
+                                "val_loss": val, "bpb": bpb}, ckpt_path)
 
     torch.cuda.synchronize()
     elapsed = time.perf_counter() - t0
-    return dict(name=cfg["name"], params=n_params, val_loss=best_val,
-                tok_s=cfg["max_steps"] * tps / elapsed,
+    return dict(name=cfg["name"], params=n_params, val_loss=best_val, bpb=best_bpb,
+                bytes_per_token=bpt, tok_s=cfg["max_steps"] * tps / elapsed,
                 peak_gb=torch.cuda.max_memory_allocated() / 1e9, ckpt=ckpt_path)
 
 
@@ -138,8 +144,9 @@ def main():
         wandb.init(project="small-tank", name=cfg["name"], config=cfg)
 
     m = train(cfg)
-    print(f"[train] done. {m['name']}: best val {m['val_loss']:.3f} | "
-          f"{m['params']/1e6:.2f}M | {m['tok_s']/1e3:.0f}K tok/s -> {m['ckpt']}")
+    print(f"[train] done. {m['name']}: best val {m['val_loss']:.3f} | bpb {m['bpb']:.3f} "
+          f"(bytes/tok {m['bytes_per_token']:.2f}) | {m['params']/1e6:.2f}M | "
+          f"{m['tok_s']/1e3:.0f}K tok/s -> {m['ckpt']}")
 
 
 if __name__ == "__main__":
