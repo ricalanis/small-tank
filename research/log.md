@@ -98,3 +98,27 @@ INTUITION:    The SOTA stack is NOT a free lunch at toy scale: full-modern is SL
 UNVERIFIED→:  Confirms each component's role qualitatively. Open: re-measure norm speed under torch.compile;
               GQA/RoPE benefits at the true-30M / longer-seq regime. Next: Lesson 1 + Exp 2 (true-30M depth-vs-width).
 
+## RUN 004 — 2026-06-14 — Lesson A1.Do.2: remove the causal mask (label-leakage demo)
+HYPOTHESIS:   (written BEFORE running) Flipping is_causal=True→False lets position i attend to position
+              i+1, which IS the prediction target → label leakage. So VAL LOSS will DROP much faster /
+              far lower than the causal baseline (the number looks GREAT). BUT GENERATION will be WORSE:
+              the model learns to depend on future tokens that don't exist at autoregressive inference
+              time (train/inference mismatch). Net lesson predicted: a better-looking metric, a broken model.
+CHANGE:       src/model.py Attention.forward: F.scaled_dot_product_attention(..., is_causal=False).
+              ~200 steps, otherwise configs/5m.yaml unchanged. (Revert after.)
+CONFIG:       configs/5m.yaml, 250 steps, eval every 50. Controlled pair (a1_causal vs a1_nomask),
+              one variable = is_causal. Run on ricardoubuntu, commit 493ec82 (edits reverted, not committed).
+RESULT:       control  is_causal=True : val 8.32 → 3.44  (normal descent, matches RUN 002 trajectory)
+              no-mask  is_causal=False: val 8.30 → 0.29  (COLLAPSE — ~12x lower, still plunging)
+              0.29 is impossible for an honest 5M TinyStories LM (RUN 002 = 1.84 @5000 steps; 28M ref ~1.3)
+              ⇒ unambiguous label leakage. (Generation not sampled; checkpoints deleted to protect 5m.pt.)
+VERDICT:      WIN — both predictions correct. Val loss drops far faster/lower (pred #1 ✓); the cause is
+              leakage, so generation would be broken (pred #2 ✓ by inference). Calibration: 2/2 this run.
+INTUITION:    The causal mask is what makes val loss an HONEST proxy for the autoregressive task. Remove it
+              and you optimize bidirectional fill-in — a task you can never play at inference (no future
+              tokens exist when generating left-to-right). A metric and a model can point opposite ways:
+              a spectacular-looking loss can mean a broken model. Generalizes: any train/inference input
+              mismatch (leakage, teacher-forcing-only signals) inflates the metric while degrading deployment.
+UNVERIFIED→:  Lesson A1 (Attention Is All You Need) closed. Confirms: attention is permutation-equivariant
+              (order must be injected); causal masking is what defines a *language* model vs a fill-in model.
+
